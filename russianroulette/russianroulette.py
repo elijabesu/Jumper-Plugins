@@ -18,16 +18,11 @@ __author__ = "Redjumpman"
 
 
 class RussianRoulette(commands.Cog):
-    defaults = {
-        "Cost": 50,
-        "Chamber_Size": 6,
-        "Wait_Time": 60,
-        "Session": {"Pot": 0, "Players": [], "Active": False},
-    }
 
     def __init__(self):
         self.config = Config.get_conf(self, 5074395004, force_registration=True)
-        self.config.register_guild(**self.defaults)
+        self.config.register_guild(Session={"Pot": 0, "Players": [], "Active": False})
+        self.config.register_global(Cost=50, Chamber_Size=6, Wait_Time=60)
 
     async def red_delete_data_for_user(self, **kwargs):
         """Nothing to delete."""
@@ -46,8 +41,9 @@ class RussianRoulette(commands.Cog):
         maximum number of players will be 6.
         """
         settings = await self.config.guild(ctx.guild).all()
-        if await self.game_checks(ctx, settings):
-            await self.add_player(ctx, settings["Cost"])
+        global_settings = await self.config.all()
+        if await self.game_checks(ctx, settings, global_settings):
+            await self.add_player(ctx, global_settings["Cost"])
 
     @commands.guild_only()
     @checks.admin_or_permissions(administrator=True)
@@ -74,7 +70,7 @@ class RussianRoulette(commands.Cog):
         """Sets the chamber size of the gun used. MAX: 12."""
         if not 1 < size <= 12:
             return await ctx.send("Invalid chamber size. Must be in the range of 2 - 12.")
-        await self.config.guild(ctx.guild).Chamber_Size.set(size)
+        await self.config.Chamber_Size.set(size)
         await ctx.send("Chamber size set to {}.".format(size))
 
     @setrussian.command()
@@ -82,7 +78,7 @@ class RussianRoulette(commands.Cog):
         """Sets the required cost to play."""
         if amount < 0:
             return await ctx.send("You are an idiot.")
-        await self.config.guild(ctx.guild).Cost.set(amount)
+        await self.config.Cost.set(amount)
         currency = await bank.get_currency_name(ctx.guild)
         await ctx.send("Required cost to play set to {} {}.".format(amount, currency))
 
@@ -91,10 +87,10 @@ class RussianRoulette(commands.Cog):
         """Set the wait time (seconds) before starting the game."""
         if seconds <= 0:
             return await ctx.send("You are an idiot.")
-        await self.config.guild(ctx.guild).Wait_Time.set(seconds)
+        await self.config.Wait_Time.set(seconds)
         await ctx.send("The time before a roulette game starts is now {} seconds.".format(seconds))
 
-    async def game_checks(self, ctx, settings):
+    async def game_checks(self, ctx, settings, global_settings):
         if settings["Session"]["Active"]:
             with contextlib.suppress(discord.Forbidden):
                 await ctx.author.send("You cannot join or start a game of russian roulette while one is active.")
@@ -104,15 +100,15 @@ class RussianRoulette(commands.Cog):
             await ctx.send("You are already in the roulette circle.")
             return False
 
-        if len(settings["Session"]["Players"]) == settings["Chamber_Size"]:
+        if len(settings["Session"]["Players"]) == global_settings["Chamber_Size"]:
             await ctx.send("The roulette circle is full. Wait for this game to finish to join.")
             return False
 
         try:
-            await bank.withdraw_credits(ctx.author, settings["Cost"])
+            await bank.withdraw_credits(ctx.author, global_settings["Cost"])
         except ValueError:
             currency = await bank.get_currency_name(ctx.guild)
-            await ctx.send("Insufficient funds! This game requires {} {}.".format(settings["Cost"], currency))
+            await ctx.send("Insufficient funds! This game requires {} {}.".format(global_settings["Cost"], currency))
             return False
         else:
             return True
@@ -126,7 +122,7 @@ class RussianRoulette(commands.Cog):
             num_players = len(players)
 
         if num_players == 1:
-            wait = await self.config.guild(ctx.guild).Wait_Time()
+            wait = await self.config.Wait_Time()
             await ctx.send(
                 "{0.author.mention} is gathering players for a game of russian "
                 "roulette!\nType `{0.prefix}russian` to enter. "
@@ -149,7 +145,7 @@ class RussianRoulette(commands.Cog):
                 await bank.set_balance(ctx.author, e.max_balance)
             await self.reset_game(ctx)
             return await ctx.send("You can't play by youself. That's just suicide.\nGame reset and cost refunded.")
-        chamber = await self.config.guild(ctx.guild).Chamber_Size()
+        chamber = await self.config.Chamber_Size()
 
         counter = 1
         while len(filtered_players) > 1:
